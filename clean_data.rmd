@@ -1,0 +1,92 @@
+---
+title: "Nominal house prices data in Luxembourg - Data cleaning"
+author: "Put your name in here"
+date: "`r Sys.Date()`"
+---
+
+```{r, warning=FALSE, message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(janitor)
+library(purrr)
+library(readxl)
+library(rvest)
+library(stringr)
+```
+
+
+## Downloading the data
+
+This data is downloaded from the luxembourguish [Open Data
+Portal](https://data.public.lu/fr/datasets/prix-annonces-des-logements-par-commune/)
+(the data set called *Série rétrospective des prix annoncés des maisons par
+commune, de 2010 à 2021*), and the original data is from the "Observatoire de
+l'habitat". This data contains prices for houses sold since 2010 for each
+luxembourguish commune. 
+
+The function below uses the permanent URL from the Open Data Portal to access
+the data, but I have also rehosted the data, and use my link to download the
+data (for archival purposes):
+
+```{r, eval = F}
+get_raw_data <- function(url = "https://data.public.lu/fr/datasets/r/14b0156e-ff87-4a36-a867-933fc9a6f903"){
+
+  raw_data <- tempfile(fileext = ".xlsx")
+
+  download.file(url,
+                raw_data,
+                mode = "wb") # for compatibility with Windows
+
+  sheets <- excel_sheets(raw_data)
+
+  read_clean <- function(..., sheet){
+    read_excel(..., sheet = sheet) %>%
+      mutate(year = sheet)
+  }
+
+  raw_data <- map_dfr(sheets,
+                      ~read_clean(raw_data,
+                                  skip = 10,
+                                  sheet = .)) %>%
+    clean_names()
+
+  raw_data %>%
+    rename(locality = commune,
+           n_offers = nombre_doffres,
+           average_price_nominal_euros = prix_moyen_annonce_en_courant,
+           average_price_m2_nominal_euros = prix_moyen_annonce_au_m2_en_courant,
+           average_price_m2_nominal_euros = prix_moyen_annonce_au_m2_en_courant
+           ) %>%
+    mutate(locality = str_trim(locality)) %>%
+    select(year, locality, n_offers, starts_with("average"))
+
+}
+```
+
+```{r}
+raw_data <- get_raw_data(url = "https://github.com/b-rodrigues/rap4all/raw/master/datasets/vente-maison-2010-2021.xlsx")
+```
+
+We need clean the data: "Luxembourg" is "Luxembourg-ville" in 2010 and 2011,
+then "Luxembourg". "Pétange" is also spelled non-consistently, and we also need
+to convert columns to right type. We also directly remove rows where the
+locality contains information on the "Source":
+
+```{r}
+clean_raw_data <- function(raw_data){
+  raw_data %>%
+    mutate(locality = ifelse(grepl("Luxembourg-Ville", locality),
+                             "Luxembourg",
+                             locality),
+           locality = ifelse(grepl("P.tange", locality),
+                             "Pétange",
+                             locality)
+           ) %>%
+    filter(!grepl("Source", locality)) %>%
+    mutate(across(starts_with("average"), as.numeric))
+}
+```
+
+```{r}
+flat_data <- clean_raw_data(raw_data)
+```
